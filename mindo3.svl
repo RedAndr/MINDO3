@@ -1,0 +1,677 @@
+#svl
+//
+//	MINDO/3
+//
+//      MINDO3.svl
+//
+//      2-May-2005 (ar) created
+//
+#set title 'MINDO/3'
+
+// Variables
+global axy,Bxy;
+global nat;									// atoms count
+global atoms;									// atoms itself
+global numbf;									// total count of basis functions
+global F0, D, F1, F2, F;							// matrixes
+global Orbe, Orbs;								// orbitals, eigenvalues and eigenvectors
+global numorb;									// number of the orbital to draw
+
+// Constants
+const E2	= 14.399;							// Coulomb's law coeff if R in \AA and resulting E in eV
+const ev2kcal	= 23.061;							// Conversion of energy in eV to energy in kcal/mol
+const bohr2ang	= 0.529177249;							// Conversion of length from bohr to angstrom
+
+// Nuclear charges
+const nuclear_charge = [H:1, Li:3, Be:4, B:5, C:6, N:7, O:8, F:9, Na:11, Mg:12, Al:13, Si:14, P:15, S:16, Cl:17];
+function getnuch atnmtok = tagpeek [ nuclear_charge, atnmtok ];
+
+// Atomic core charges
+const Core = [ 1.0, 0.0,
+          0.0, 0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 0.0,
+          0.0, 0.0, 0.0, 4.0, 5.0, 6.0, 7.0, 0.0];
+
+// Averaged repulsion integral for use in gamma
+const f03 = [ 12.848, 10.0, 10.0, 0.0, 8.958, 10.833, 12.377, 13.985, 
+              16.250, 10.0, 10.0, 0.0, 0.0, 7.57,  9.00 ,10.20 , 11.73];
+function getf03 atnuc = E2/f03 (atnuc);
+
+
+// Default isolated atomic energy values
+const Eat = [ -12.505, 0.0,
+       0.0 ,0.0,-61.70,-119.47,-187.51,-307.07,-475.00,0.0,
+       0.0,0.0,0.0,-90.98,-150.81,-229.15,-345.93, 0.0];
+
+// Atomic heat of formations
+const Hfat = [ 52.102, 0.0,
+         0.0, 0.0, 135.7, 170.89, 113.0, 59.559, 18.86, 0.0,
+         0.0, 0.0, 0.0, 106.0, 79.8, 65.65, 28.95, 0.0];
+
+// s-s atomic orbital one center two electron repulsion integral
+const gss = [ 12.848, 0.0,
+        0.0, 0.0, 10.59, 12.23, 13.59, 15.42, 16.92, 0.0,
+        0.0, 0.0, 0.0, 9.82, 11.56, 12.88, 15.03, 0.0];
+
+// s-p atomic orbital one center two electron repulsion integral
+const gsp = [ 0.0, 0.0,
+        0.0, 0.0, 9.56, 11.47, 12.66, 14.48, 17.25, 0.0,
+        0.0, 0.0, 0.0, 8.36, 10.08, 11.26, 13.16, 0.0];
+
+// p-p atomic orbital one center two electron repulsion integral
+const gpp = [ 0.0, 0.0,
+        0.0, 0.0, 8.86, 11.08, 12.98, 14.52, 16.71, 0.0,
+        0.0, 0.0, 0.0, 7.31, 8.64, 9.90, 11.30, 0.0];
+
+// p-p' atomic orbital one center two electron repulsion integral
+const gppp = [ 0.0, 0.0,
+         0.0, 0.0, 7.86, 9.84, 11.59, 12.98, 14.91, 0.0,
+         0.0, 0.0, 0.0, 6.54, 7.68, 8.83, 9.97, 0.0];
+
+// s-p atomic orbital one-center two-electron exchange integral
+const hsp = [ 0.0, 0.0,
+        0.0, 0.0, 1.81, 2.43, 3.14, 3.94, 4.83, 0.0,
+        0.0, 0.0, 0.0, 1.32, 1.92, 2.26, 2.42, 0.0];
+
+const hppp = [ 0.0, 0.0,
+         0.0, 0.0, 0.50, 0.62, 0.70, 0.77, 0.90, 0.0,
+         0.0, 0.0, 0.0, 0.38, 0.48, 0.54, 0.67, 0.0];
+
+//s and p atomic orbital one-electron one-center integrals
+const Usspp = [
+	[ -12.505, 0.0,
+	  0.0, 0.0, -33.61, -51.79, -66.06,
+          -91.73, -129.86, 0.0,
+           0.0, 0.0, 0.0, -39.82, -56.23, -73.39, -98.99, 0.0], 
+	[ 0.0, 0.0,
+        0.0, 0.0, -25.11, -39.18, -56.40, -78.80, -105.93, 0.0,
+        0.0, 0.0, 0.0, -29.15, -42.31, -57.25, -76.43, 0.0]
+];
+
+// s atomic orbital ionization potential for two center resonance integral term
+const IPsp = [
+	[ -13.605, 0.0,
+        0.0, 0.0, -15.160, -21.340, -27.510, -35.300, -43.700, -17.820,
+        0.0, 0.0, 0.0, 0.0, -21.100, -23.840, -25.260, 0.0],
+// p atomic orbital ionization potential for two center resonance integral term
+	[ 0.0, 0.0,
+        0.0, 0.0, -8.520, -11.540, -14.340, -17.910, -20.890, -8.510,
+        0.0, 0.0, 0.0, 0.0, -10.290, -12.410, -15.090, 0.0]
+];
+
+const zetasp = [
+// s-type Slater atomic orbital exponent
+	[ 1.30, 0.0,
+          0.0, 0.0, 1.211156, 1.739391, 2.704546, 3.640575, 3.111270, 0.0,
+          0.0, 0.0, 0.0, 1.629173, 1.926108, 1.719480, 3.430887, 0.0],
+// p-type Slater atomic orbital exponent
+	[ 0.0, 0.0,
+          0.0, 0.0, 0.972826, 1.709645, 1.870839, 2.168448, 1.419860, 0.0,
+          0.0, 0.0, 0.0, 1.381721, 1.590665, 1.403205, 1.627017, 0.0]
+];
+
+// STO-6G basis exponents and coefficients
+const gexps = [
+  [   
+      [2.310303149e01   ,4.235915534e00   ,1.185056519e00  ,4.070988982e-01,1.580884151e-01,6.510953954e-02]	// 1s
+  ],
+  [   [2.768496241e01   ,5.077140627e00   ,1.426786050e00  ,2.040335729e-01,9.260298399e-02,4.416183978e-02],	// 2s
+      [5.868285913e00   ,1.530329631e00   ,5.475665231e-01 ,2.288932733e-01,1.046655969e-01,4.948220127e-02]	// 2p
+  ],
+  [
+      [-6.775596947e-03 ,-5.639325779e-02 ,-1.587856086e-01,5.534527651e-01,5.015351020e-01,7.223633674e-02],	// 3s
+      [5.077973607e00   ,1.340786940e00   ,2.248434849e-01 ,1.131741848e-01,6.076408893e-02,3.315424265e-02]	// 3p
+  ]
+];
+
+const gcoefs = [
+  [   
+      [9.163596280e-03  ,4.936149294e-02  ,1.685383049e-01 ,3.705627997e-01,4.164915298e-01,1.303340841e-01]	// 1s
+  ],
+  [   [-4.151277819e-03 ,-2.067024148e-02 ,-5.150303337e-02,3.346271174e-01,5.621061301e-01,1.712994697e-01],	// 2s
+      [7.924233646e-03  ,5.144104825e-02  ,1.898400060e-01 ,4.049863191e-01,4.012362861e-01,1.051855189e-01]	// 2p
+  ],
+  [
+      [-6.775596947e-03 ,-5.639325779e-02 ,-1.587856086e-01,5.534527651e-01,5.015351020e-01,7.223633674e-02],	// 3s
+      [-3.329929840e-03 ,-1.419488340e-02 ,1.639395770e-01 ,4.485358256e-01,3.908813050e-01,7.411456232e-02]	// 3p
+  ]
+];
+
+
+
+// The distance between two atoms a and b, ( Euclid metric :)
+function dist [a,b] = (
+	sqrt app add sqr [ 
+		apt peek [ apt peek [atoms[igen 3+1], 2 ], a ] - 
+		apt peek [ apt peek [atoms[igen 3+1], 2 ], b ]   ]
+/*	sqrt app add sqr [[
+		atoms.X(a)-atoms.X(b), 
+		atoms.Y(a)-atoms.Y(b), 
+		atoms.Z(a)-atoms.Z(b)
+	]]*/
+);
+
+
+// Square of the distance between two atoms a and b
+function dist2 [a,b] = (
+	app add sqr [ 
+		apt peek [ apt peek [atoms[igen 3+1], 2 ], a ] - 
+		apt peek [ apt peek [atoms[igen 3+1], 2 ], b ]   ]
+);
+
+
+// Coulomb repulsion that goes to the proper limit at R=0" between atoms a and b
+function gamma [a, b] = (
+	E2/sqrt( dist2[a, b] + 0.25 * sqr( atoms.Rho(a) + atoms.Rho(b) ) ) 
+);
+
+
+// Prefactor from the nuclear repulsion term
+function scale [a, b, R]
+
+	local [i,j] = [atoms.NUC(a),atoms.NUC(b)];
+	local alpha = axy(i)(j);						// Part of the scale factor for the nuclear repulsion
+
+        if ((i == 1) and ((j == 7) or (j == 8))) or
+           ((j == 1) and ((i == 7) or (i == 8))) then
+        	return alpha*exp(-R);
+	else 
+		return exp(-alpha*R);
+        endif;
+
+endfunction
+
+
+// Compute the nuclear repulsion energy
+function Enuclear[]
+
+	local enuk = 0, i, j, R, sc, gammaij;
+
+	for i=1, nat loop
+		for j=1+i, nat loop
+			R = dist [ i, j ];
+			sc = scale [ i, j, R ];
+			gammaij = gamma [ i, j ];
+			enuk = enuk + atoms.Zc(i) * atoms.Zc(j) * ( gammaij + (E2/R-gammaij) * sc );
+		endloop;
+	endloop;
+
+	return enuk;
+
+endfunction
+
+
+global ibf;
+
+// Get basis function for an atom and given bf type
+function getbasisfunc [ i, j ]					
+
+	local bf, 
+		znuc	= atoms.NUC(i),						// nuclear charge
+		NQN	= int((atoms.NUC(i)+9)/8), 				// principle quantum number N
+		OrbType	= (j<>1)+1;						// atomic orbital type, s/px/py/pz
+
+	bf = [	index: ibf, 
+		atomidx: i, 
+		type: j,
+		u   : Usspp ( OrbType ) ( znuc ),
+		ip  : IPsp  ( OrbType ) ( znuc ),
+		exponent    : gexps  ( NQN ) ( OrbType ) * sqr zetasp ( OrbType ) ( znuc ),
+		coefficient : gcoefs ( NQN ) ( OrbType )
+	];
+
+	ibf=ibf+1;
+
+	return bf;
+
+endfunction
+
+
+// Get basis for i-th atom
+function getbasis[i] = (						
+	apt getbasisfunc[ i, igen atoms.nbf(i) ]
+);
+
+
+// Ref = heat of formation - energy of atomization
+function Erefer[] = (
+    app add [atoms.Hf] - app add [atoms.Eref] * ev2kcal				// hfat - eat*ev2kcal
+);
+
+
+// Calculate the overlap integrals using a gaussian expansion STO-6G
+function overlap [ bfi, bfj ]
+
+	local ri = apt peek [ apt peek [atoms[igen 3+1], 2 ], bfi.atomidx ] / bohr2ang;		// distance in bohr
+	local rj = apt peek [ apt peek [atoms[igen 3+1], 2 ], bfj.atomidx ] / bohr2ang;
+	local RR = apt add sqr (ri-rj);
+
+	local i,j,Sij=0;
+	local itype=bfi.type;							// basis functions types
+	local jtype=bfj.type;							// s=1,px=2,py=3,pz=4
+
+	for i=1, 6 loop
+
+		for j=1, 6 loop
+
+			local amb = bfi.exponent[i] + bfj.exponent[j];
+			local apb = bfi.exponent[i] * bfj.exponent[j];
+			local adb = apb/amb;
+			local tomb, abn;
+
+                        if (itype > 1) and (jtype > 1) then			// p ans p, is = 4
+                           tomb = (ri[itype-1]-rj[itype-1])*(ri[jtype-1]-rj[jtype-1]);
+                           abn = -adb*tomb;
+                           if (itype == jtype) then abn = abn + 0.5; endif;
+                           abn = 4*abn*sqrt(apb)/amb;
+
+                        else if (itype > 1) then       			        // p and s, is = 3
+                        	tomb = (ri[itype-1]-rj[itype-1]);
+                                abn = -2*tomb*bfj.exponent[j] * sqrt(bfi.exponent[i])/amb;
+
+                             else if (jtype > 1) then                           // s and p, is = 2
+                                     tomb = (ri[jtype-1]-rj[jtype-1]);
+                                     abn =  2*tomb*bfi.exponent[i] * sqrt(bfj.exponent[j])/amb;
+
+                             	  else                                          // s and s, is = 1
+                                     abn = 1.0;
+                                  endif;
+                             endif
+                        endif;
+
+                        if (adb*RR < 90) then
+                            Sij = Sij + bfi.coefficient[i] * bfj.coefficient[j] * 
+                                   pow [2*sqrt(apb)/amb,1.5] * exp(-adb*RR)*abn;
+                        endif;
+
+		endloop;
+
+	endloop;
+
+	return Sij;
+
+endfunction;
+
+
+// Form the zero-iteration (density matrix independent) Fock matrix
+function calc_F0[]
+
+        F0 = rep [ rep[0,numbf], numbf ];
+
+        local ibf = 0, iat, i, jat, j;						// bf number of the first bfn on iat
+        for iat=1, nat loop
+            for i=1, atoms.nbf(iat) loop
+            	local bfi = peek [atoms.basis, [iat,i] ];
+                F0(ibf+i)(ibf+i) = tagpeek [ bfi, 'u' ];
+                local jbf = 0;
+                for jat=1, nat loop
+                    if iat <> jat then
+                        local gammaij = gamma [ iat, jat ];
+                        local betaij  = Bxy(atoms.NUC(iat))(atoms.NUC(jat));	// Resonanace integral for coupling between different atoms
+                        F0(ibf+i)(ibf+i) = F0(ibf+i)(ibf+i) - gammaij*atoms.Zc(jat);
+                        for j=1, atoms.nbf(jat) loop
+			    local bfj = peek [atoms.basis, [jat,j] ];
+                            local Sij = overlap [ bfi, bfj ];
+                            local IPij = tagpeek [bfi,'ip'] + tagpeek [bfj,'ip'];
+                            F0(ibf+i)(jbf+j) = betaij*IPij*Sij;
+                        endloop;
+                    endif;
+                    jbf = jbf + atoms.nbf(jat);
+                endloop;
+            endloop;
+            ibf = ibf + atoms.nbf(iat);
+        endloop;
+
+endfunction
+
+
+// Average occupation density matrix
+function guess_D[]
+
+        D = rep [ rep[0,numbf], numbf ];
+
+    	local ibf = 0, iat, i;
+        for iat=1, nat loop
+        	for i=1, atoms.nbf(iat) loop
+	            	if atoms.NUC(iat) == 1 then
+	       	        	D(ibf+i)(ibf+i) = atoms.Zc(iat)/1;
+        	    	else                 
+                		D(ibf+i)(ibf+i) = atoms.Zc(iat)/4;
+                	endif;	
+	        endloop;
+        ibf = ibf + atoms.nbf(iat);
+	endloop;
+
+endfunction
+
+
+// Coulomb-like term for orbitals on the same atom
+function g [ bfi, bfj ]
+
+	local	i = bfi.type;
+	local	j = bfj.type;
+
+	if i==1 and j==1 then return atoms.gss ( bfi.atomidx );			// both are s-type orbitals
+	else 
+		if i==1 or j==1 then return atoms.gsp ( bfi.atomidx );			// only one is s-orbital
+		else 
+			if i==j then return atoms.gpp ( bfi.atomidx );				// p-orbitals
+			endif;
+		endif;
+	endif;
+
+	return atoms.gppp ( bfi.atomidx );                                          // p-p'
+
+endfunction 
+
+
+// Exchange-like term for orbitals on the same atom
+function h [ bfi, bfj ]
+
+	if bfi.type==1 or bfj.type==1 then
+		return atoms.hsp ( bfi.atomidx );
+	else
+		return atoms.hppp ( bfi.atomidx );
+	endif;
+
+endfunction
+
+
+// One-center corrections to the core fock matrix
+function calc_F1[]
+
+        F1 = rep [ rep[0,numbf], numbf ];
+
+        local ibf = 0, iat, i, j;						// bf number of the first bfn on iat
+        for iat=1, nat loop							// run thru all atoms
+            for i=1, atoms.nbf(iat) loop					// run thru all basis for each atom
+            	local bfi = peek [atoms.basis, [iat,i] ];			// i-th basis function for iat-th atom
+                F1 (ibf+i)(ibf+i) = 0.5 * g[bfi,bfi] * D (ibf+i)(ibf+i);
+                for j=1, atoms.nbf(iat) loop					// ij on same atom
+                    if j <> i then
+	            	local bfj = peek [atoms.basis, [iat,j] ];               // j-th basis function for iat-th atom
+                        local gij = g [bfi,bfj];
+                        local hij = h [bfi,bfj];
+                        F1 (ibf+i)(ibf+i) = F1 (ibf+i)(ibf+i) + (gij - 0.5*hij)   * D(ibf+j)(ibf+j);
+                        F1 (ibf+i)(ibf+j) = F1 (ibf+i)(ibf+j) + 0.5 * (3*hij-gij) * D(ibf+i)(ibf+j);
+                    endif;
+                endloop;
+            endloop;
+            ibf = ibf + atoms.nbf(iat);
+        endloop;
+
+endfunction
+
+
+// Two-center corrections to the core fock matrix
+function calc_F2[]
+
+        F2 = rep [ rep[0,numbf], numbf ];
+       	local dD = apt peek [D, x_id D];
+
+        local ibf = 0, iat, jat, i, j;						// bf number of the first bfn on iat
+        for iat=1, nat loop
+            local jbf = 0;
+            for jat=1, nat loop
+                if iat <> jat then
+                    local gammaij = gamma [ iat, jat ];
+                    for i=1, atoms.nbf(iat) loop
+
+                       	local v = peek [ F2, ibf+i ];
+                       	v[jbf+igen atoms.nbf(jat)] = get[ F2(ibf+i), jbf+igen atoms.nbf(jat) ] - 0.25 * gammaij * get[ D(ibf+i), jbf+igen atoms.nbf(jat) ];
+                       	F2 = poke    [ F2, ibf+i, v ];
+                       	F2 = apt put [ F2, ibf+i, v ];
+                       	F2(ibf+i)(ibf+i) = F2(ibf+i)(ibf+i) + 0.5 * gammaij * add get [dD, jbf + igen atoms.nbf(jat)];
+			F2 = apt put [F2, x_id F2, put [ apt peek [F2, x_id F2], jbf+igen atoms.nbf(jat), 
+			                           get [ apt peek [F2, x_id F2], jbf+igen atoms.nbf(jat) ] + 0.5  * gammaij * D(ibf+i)(ibf+i) ] ];
+// generic non-vectorized code:
+//                       for j=1, atoms.nbf(jat) loop
+//                            F2(ibf+i)(jbf+j) = F2(ibf+i)(jbf+j) - 0.25 * gammaij * D(ibf+i)(jbf+j);
+//                            F2(jbf+j)(ibf+i) = F2(ibf+i)(jbf+j);
+//                            F2(ibf+i)(ibf+i) = F2(ibf+i)(ibf+i) + 0.5  * gammaij * D(jbf+j)(jbf+j);
+//                            F2(jbf+j)(jbf+j) = F2(jbf+j)(jbf+j) + 0.5  * gammaij * D(ibf+i)(ibf+i);
+//                       endloop;
+
+                    endloop;
+                endif;
+                jbf = jbf + atoms.nbf(jat);
+            endloop;
+            ibf = ibf + atoms.nbf(iat);
+        endloop;
+
+endfunction
+
+
+// Gaussian type orbital, AO = GTO
+function GTO [ bf, xyz ]
+
+	local	R2 = app add sqr [ 
+			apt peek [ apt peek [atoms[igen 3+1], 2 ], bf.atomidx ] - xyz ];
+	local	sum = 0.0, i; 
+	for i=1, 6 loop
+		sum = sum + bf.coefficient[i] * exp( -bf.exponent[i] * R2 );
+	endloop
+	if bf.type == 1 then
+		return sum;			// S
+	else                
+		return sum * xyz[ bf.type-1 ];	// Pxyz
+	endif;
+
+endfunction
+
+
+// Molecular orbital, MO = LCAO = LCGTO
+function MolOrb xyz
+
+	local	sum = 0.0;
+	local	orbi = 1; 
+	local	i,j;
+
+	for i=1, nat loop
+		for j=1, atoms.nbf(i) loop
+			sum = sum + Orbs(numorb)(orbi) * GTO[ peek [atoms.basis, [i,j] ], xyz ];
+			orbi = orbi + 1;
+		endloop;
+	endloop;
+
+	return sum;
+
+endfunction
+
+// Draw given surface
+function draw_surf [ [data,shape], level, SURF_NAME, SURF_COLOR, opt, norm]
+
+	GDestroy SURF_NAME;
+
+	local	dims = [1,2,3];
+	local	gtype = 2;
+
+	local	[isovtx, isoidx] = grid_iso [data, shape, level, dims];
+
+	local	points = grid_isovtx_coord [data, shape, isovtx, level, dims];
+	local	normals = norm * grid_isovtx_grad [data, shape, isovtx, level, dims];
+
+	local	idx = grid_isoidx_emit [isoidx, gtype, opt];
+
+	GVertex	[GCreate SURF_NAME, gtype, idx, SURF_COLOR, points, normals];
+
+endfunction
+
+// Draw choosen orbital
+function DrawOrbital [num_orb]
+
+	local	c1 = [ min atoms.X-2, min atoms.Y-2, min atoms.Z-2 ], 
+		c2 = [ max atoms.X+2, max atoms.Y+2, max atoms.Z+2 ], 
+		spacing = 0.2;							// grid resolution
+
+	local	shape = c1 + dec app igen inc ceil ((c2 - c1) / spacing) * spacing;
+	local	coord = grid_coord [shape, igen mul app length shape];
+
+	numorb = num_orb;
+	local	data = apt MolOrb coord;					// generate data
+
+	draw_surf [ [data, shape], max data / 3.0, 'PosMO', 0xff2233, -1, -1 ];	// draw positive phi
+	draw_surf [ [data, shape], min data / 3.0, 'NegMO', 0x3322ff, -1,  1 ];	// draw negative phi
+
+endfunction
+
+// Get string with orbital number and energy 
+function oname num = (
+	swrite [ '{n:4}   E={n:8.4f} ev', num, Orbe(num) ]
+);
+
+// Dialog windows to ask orbital,which should be drawn
+function AskWhatOrbitalToDraw[]
+
+	local orbital, numorbit;
+	local orbnames = app token app oname igen numbf;
+	local ListboxHeader = 'Molecular orbitals:';
+
+        local wkey = WindowCreate [
+
+     		title : 'MINDO/3 Molecular Orbitals',
+     		text : ['OK', 'Cancel'],
+     		onTrigger : ['validate', 'exit'],
+
+		Vbox:[
+
+			Listbox: [
+				name		: 'molistbox',
+                		title		: '',
+                		header		: ListboxHeader,
+                		onTrigger	: 'return',
+                		multiSelect	: 0,
+                		multiColumn	: 0,
+                		type		: 'int',
+                		len		: min [ numbf, 20 ],
+                		width		: max [ length string ListboxHeader, 20 ],
+                		text		: orbnames
+	      		] 
+        
+	    	]
+        ];
+
+        WindowShow wkey;
+
+	loop
+	    	local [vals, trigger] = WindowWait wkey;
+
+	    	if trigger == 'molistbox' then
+			continue;
+		else	
+			break;
+	    	endif
+	endloop
+
+	numorb = vals.molistbox(1);
+
+        WindowDestroy wkey;
+
+	if length numorb == 0 then
+	        return 0;
+	else
+	        return 1;
+	endif
+
+endfunction
+
+
+// Main program, initialization, SCF procedure, and vizualization
+function main[]
+
+        axy = rep [ rep[0,19], 19 ]; 						// axy Core repulsion function terms
+	axy(1)(1)  = 1.489450; axy(1)(5 ) = 2.090352; axy(1)(6 ) = 1.475836; axy(1)(7 ) = 0.589380; axy(1)(8 ) = 0.478901; 
+	axy(1)(9 ) = 3.771362; axy(1)(14) = 0.940789; axy(1)(15) = 0.923170; axy(1)(16) = 1.700689; axy(1)(17) = 2.089404; 
+	axy(5)(5 ) = 2.280544; axy(5)(6 ) = 2.138291; axy(5)(7 ) = 1.909763; axy(5)(8 ) = 2.484827; axy(5)(9 ) = 2.862183; 
+	axy(6)(6 ) = 1.371208; axy(6)(7 ) = 1.635259; axy(6)(8 ) = 1.820975; axy(6)(9 ) = 2.725913; axy(6)(14) = 1.101382;  
+	axy(6)(15) = 1.029693; axy(6)(16) = 1.761370; axy(6)(17) = 1.676222; axy(7)(7 ) = 2.209618; axy(7)(8 ) = 1.873859; 
+	axy(7)(9 ) = 2.861667; axy(8)(8 ) = 1.537190; axy(8)(9 ) = 2.266949; axy(9)(9 ) = 3.864997; axy(14)(14)= 0.918432;       
+	axy(15)(15)= 1.186652; axy(16)(16)= 1.751617; axy(17)(17)= 1.792125;
+        axy = axy + tr axy;							// subdiagonal elements
+	axy = apt put [axy, x_id axy, apt peek [axy, x_id axy]/2];		// diagonal elements
+
+        Bxy = rep [ rep[0,19], 19 ]; 						// Diatomic two center one-electron resonance integral multiplier
+	Bxy(1 )(1 ) = 0.244770;  Bxy(1 )(5 ) = 0.185347;  Bxy(1 )(6 ) = 0.315011;  Bxy(1 )(7 ) = 0.360776;  Bxy(1 )(8 ) = 0.417759; 
+	Bxy(1 )(9 ) = 0.195242;  Bxy(1 )(14) = 0.289647;  Bxy(1 )(15) = 0.320118;  Bxy(1 )(16) = 0.220654;  Bxy(1 )(17) = 0.231653;
+	Bxy(5 )(5 ) = 0.151324;  Bxy(5 )(6 ) = 0.250031;  Bxy(5 )(7 ) = 0.310959;  Bxy(5 )(8 ) = 0.349745;  Bxy(5 )(9 ) = 0.219591;
+	Bxy(6 )(6 ) = 0.419907;  Bxy(6 )(7 ) = 0.410886;  Bxy(6 )(8 ) = 0.464514;  Bxy(6 )(9 ) = 0.247494;  Bxy(6 )(14) = 0.411377; 
+	Bxy(6 )(15) = 0.457816;  Bxy(6 )(16) = 0.284620;  Bxy(6 )(17) = 0.315480;  Bxy(7 )(7 ) = 0.377342;  Bxy(7 )(8 ) = 0.458110; 
+	Bxy(7 )(9 ) = 0.205347;  Bxy(8 )(8 ) = 0.659407;  Bxy(8 )(9 ) = 0.334044;  Bxy(9 )(9 ) = 0.197464;  Bxy(14)(14) = 0.291703; 
+	Bxy(15)(15) = 0.311790;  Bxy(16)(16) = 0.202489;  Bxy(17)(17) = 0.258969;
+        Bxy = Bxy + tr Bxy;							// subdiagonal elements
+	Bxy = apt put [Bxy, x_id Bxy, apt peek [Bxy, x_id axy]/2];		// diagonal elements
+
+        local mol = mol_Extract Chains[];					// get current molecular system
+
+	nat = mol(3)(MOL_RES_NATOMS);						// number of atoms in the system
+
+	local nuclocal = app getnuch mol(4)(MOL_ATOM_EL);
+	local nbflocal = (nuclocal[ igen nat ] <> 1)*3+1;
+
+	atoms = [ NUC	: nuclocal,						// nuclear charge
+	          X	: mol(4)(MOL_ATOM_X), 					// cartesian coordinates
+	          Y	: mol(4)(MOL_ATOM_Y), 
+	          Z	: mol(4)(MOL_ATOM_Z),
+		  Zc	: Core[ nuclocal[ igen nat ] ],				// core charge
+		  Rho	: apt div [E2, f03[ nuclocal[ igen nat ] ] ],		// Rho
+		  nbf	: nbflocal,						// basis functions count, 1 for hydrogen and 4 for others
+		  Eref	: Eat [ nuclocal[ igen nat ] ],                 	// atomization energy
+		  Hf	: Hfat[ nuclocal[ igen nat ] ],				// heat of formation energy
+		  gss	: gss [ nuclocal[ igen nat ] ],
+		  gsp	: gsp [ nuclocal[ igen nat ] ],
+		  gpp	: gpp [ nuclocal[ igen nat ] ],
+		  gppp	: gppp[ nuclocal[ igen nat ] ],
+		  hsp	: hsp [ nuclocal[ igen nat ] ],
+		  hppp	: hppp[ nuclocal[ igen nat ] ]
+		];
+
+	ibf = 1;								// index for basis functions
+	local baslocal = apt getbasis [ igen nat ];				// basis functions itself
+	atoms = tagpoke [ atoms, 'basis', baslocal ];
+
+	numbf = apt add atoms.nbf;						// total count of basis function in the system
+
+	local numel = apt add atoms.Zc;						// electrons
+	local nclos = numel/2;							// orbitals
+
+        local Enuk, Eref, Eel, Eold=0, Ediff, Etot, Hf;				// energies variables
+
+        Enuk = Enuclear[];
+        Eref = Erefer[];
+
+	local iter, maxiter=32, tolSCF = 1e-8;					// SCF varibales
+
+        calc_F0[];								// density independent Fock matrix
+        guess_D[];								// average occupation density matrix
+
+        F = rep [ rep[0,numbf], numbf ];					// zero F
+
+	for iter=1, maxiter loop
+        	calc_F1[];							// one-center corrections to the core fock matrix
+	        calc_F2[];                                                      // two-center corrections to the core fock matrix
+		F = F0 + F1 + F2;						// collect all matrixes together
+		local E = app add (D * [F0 + F]); 				// D*(F0+F) matrix
+		Eel = 0.5 * apt add apt peek [ E , x_id E ];			// trace of the D*(F0+F) matrix
+		Ediff = abs ( Eel - Eold );
+		if Ediff < tolSCF then break; endif;				// SCF convergence criterion is reached
+		Eold = Eel;
+		[Orbe,Orbs] = symeigensystem F;					// find orbitals
+		local d = Orbs [igen nclos];
+		D = 2 * app add (tr d * [d]);					// calculate density matrix
+	endloop;
+
+	Etot = Eel + Enuk;
+	Hf = Etot*ev2kcal+Eref;
+
+	local msg = swrite [ 'SCF process converged in {n:4} iterations\n'
+	                     'Calculated Heat of formation is {n:9.4f} kcal/mol\n', iter, Hf ];
+	Warning token msg;
+
+	print "Orbitals:";
+	    write [ '{n:11.6f}\n', Orbe ];
+	apt write [ '{n:11.6f}\n', tr Orbs ];
+
+	if AskWhatOrbitalToDraw[] then
+		DrawOrbital [ numorb ];
+	endif;
+
+endfunction
